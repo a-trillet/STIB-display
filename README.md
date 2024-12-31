@@ -43,6 +43,7 @@ LED 4 activée
 Like us, you might need to: 
 - Download the CP210x driver for ESP USB to UART bridge: [download CP210x](https://www.silabs.com/developer-tools/usb-to-uart-bridge-vcp-drivers?tab=downloads)
 - Change the baudrate for the discovered device in device manager to **115200**
+- Don't forget to close putty before writing to it
 
 Get more detailed steps: https://docs.micropython.org/en/latest/esp32/tutorial/intro.html  
 
