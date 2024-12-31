@@ -1,4 +1,4 @@
-# Brussels transport lines Diplay
+# Brussels transport lines Display
 ![](photos/prototype.jpg)
 
 
