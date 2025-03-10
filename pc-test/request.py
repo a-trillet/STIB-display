@@ -1,18 +1,22 @@
 import requests
 import json
-from machine import Pin
 
-S0 = Pin(18, Pin.OUT)
 # URL de l'API avec le paramètre where
-url = "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/vehicle-position-rt-production/records?select=*&where=lineid%3D71&limit=100"
+#url = "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/vehicle-position-rt-production/records?select=*&where=lineid%3D71&limit=100"
 
+
+lines_row = ["8", "25"]
+lineid = " OR ".join([f"lineid='{line}'" for line in lines_row])  # Adjust query syntax
+url = f"https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/vehicle-position-rt-production/records?select=*&where={lineid}&limit=100"
+
+print(url)
 # Clé API
 headers = {
-    'Authorization': 'Apikey ****'
+    'Authorization': 'Apikey 36109cef239270c05417ed2b4001d76f7b160a0824c2caa87fce5966'
 }
 
 # Liste des pointId à vérifier
-target_point_ids = ["3558", "3559", "3525", "2351", "2397", "3510B", "3517", "3372"]
+target_point_ids = ["3558", "3559", "3525", "2351", "2397", "3510", "3517", "3372"]
 
 # Dictionnaire des pointId avec les noms des arrêts
 point_names = {
@@ -32,6 +36,7 @@ response = requests.get(url, headers=headers)
 # Vérifier le contenu de la réponse
 if response.status_code == 200:
     data = response.json()
+    print(data)
     results = data.get("results", [])
     
     # Liste pour stocker les pointId présents dans la réponse

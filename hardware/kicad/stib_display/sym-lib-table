@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "doit-esp32-devkit-v1")(type "Legacy")(uri "E:/OneDrive - EGLF Engineering SRL/Documents/TravauxPerso/stib_project/kicad/libs/doit-esp32-devkit-kicad/doit-esp32-devkit-v1.lib")(options "")(descr ""))
+)

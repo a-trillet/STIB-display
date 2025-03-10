@@ -1,0 +1,18 @@
+(kicad_sch
+	(version 20231120)
+	(generator "eeschema")
+	(generator_version "8.0")
+	(uuid "3bb95cf5-4038-4c1e-81b7-34984d591ae6")
+	(paper "A4")
+	(title_block
+		(title "LED_display_stib")
+		(date "2025-01-04")
+		(rev "0")
+	)
+	(lib_symbols)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+)
