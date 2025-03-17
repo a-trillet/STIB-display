@@ -26,7 +26,7 @@ The following steps and requirements are provided for Windows.
     - `pip install esptool`
     - `pip install adafruit-ampy`
 - Erase flash of ESP: `python -m esptool --chip esp32 erase_flash`
-- Flash ESP with micropython firmware: `python -m esptool --chip esp32 --port COM3 write_flash -z 0x1000 ESP32_GENERIC-20241129-v1.24.1.bin`
+- Flash ESP with micropython firmware: `python -m esptool --chip esp32 --port COMX write_flash -z 0x1000 ESP32_GENERIC-20241129-v1.24.1.bin`
 - Adpat **** in main.py with your API key and Wifi credentials
 - Send main.py to the ESP to be executed automatically: `<path\to\ampy.exe> --port COMX put <path\to\main.py>`
 - Get buses position through serial communication (using Putty per example)
