@@ -5,6 +5,7 @@ idf_component_register(
         "led_controller.cpp"
         "wifi_manager.cpp"
         "web_server.cpp"
+        "storage_manager.cpp"
     INCLUDE_DIRS "."
     REQUIRES 
         driver
