@@ -11,4 +11,5 @@ https://github.com/abobija/idfx
 https://dl.espressif.com/dl/esp-idf/
 
 
-# m
+# TLS
+disabled verification -> to reanable with PEM in production

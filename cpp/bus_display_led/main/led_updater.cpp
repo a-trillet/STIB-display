@@ -1,4 +1,5 @@
 #include "led_updater.h"
+#include "esp_crt_bundle.h"
 
 const char* LEDUpdater::TAG = "LED_UPDATER";
 
@@ -9,8 +10,7 @@ LEDUpdater::LEDUpdater(LEDController& led_controller, WiFiManager& wifi_manager)
 std::string LEDUpdater::http_get(const std::string& url) {
     esp_http_client_config_t config{};
     config.url = url.c_str();
-    // config.cert_pem = root_cert_pem_start; // Use proper CA in production
-    config.disable_auto_redirect = false;
+    config.crt_bundle_attach = esp_crt_bundle_attach;
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_err_t err = esp_http_client_perform(client);
