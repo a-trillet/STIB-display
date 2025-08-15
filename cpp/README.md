@@ -9,3 +9,6 @@ https://github.com/abobija/idfx
 
 # if windows is prefered: 
 https://dl.espressif.com/dl/esp-idf/
+
+
+# m

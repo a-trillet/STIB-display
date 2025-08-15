@@ -3,6 +3,7 @@ idf_component_register(
     SRCS 
         "main.cpp"
         "led_controller.cpp"
+        "led_updater.cpp"
         "wifi_manager.cpp"
         "web_server.cpp"
         "storage_manager.cpp"
@@ -16,4 +17,6 @@ idf_component_register(
         esp_http_server
         nvs_flash
         log
+        json
+        esp_http_client
 )

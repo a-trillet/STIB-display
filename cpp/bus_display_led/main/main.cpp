@@ -7,6 +7,7 @@
 #include "led_controller.h"
 #include "wifi_manager.h"
 #include "web_server.h"
+#include "led_updater.h"
 #include "storage_manager.h"
 
 static const char* TAG = "MAIN";
@@ -16,27 +17,8 @@ LEDController* led_controller = nullptr;
 StorageManager* storage_manager = nullptr;
 WiFiManager* wifi_manager = nullptr;
 WebServer* web_server = nullptr;
+LEDUpdater* led_updater = nullptr;
 
-// LED pattern task
-void led_pattern_task(void* parameter) {
-    bool leds_on = false;
-    
-    ESP_LOGI(TAG, "LED pattern task started - toggling LEDs 1,3,5,7,9,11 every 5 seconds");
-    
-    while (1) {
-        if (!leds_on) {
-            ESP_LOGI(TAG, "Turning ON LEDs 1,3,5,7,9,11");
-            led_controller->test_pattern();
-            leds_on = true;
-        } else {
-            ESP_LOGI(TAG, "Turning OFF all LEDs");
-            led_controller->clear_all();
-            leds_on = false;
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(5000)); // Wait 5 seconds
-    }
-}
 
 // WiFi configuration callback from web server
 void wifi_config_callback(const std::string& ssid, const std::string& password) {
@@ -117,8 +99,16 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Web server started successfully");
     ESP_LOGI(TAG, "Connect to WiFi '%s' and go to http://192.168.4.1", WIFI_AP_SSID);
     
-    // Start LED pattern task
-    xTaskCreate(&led_pattern_task, "led_pattern_task", 2048, NULL, 5, NULL);
+
+    led_updater = new LEDUpdater(*led_controller, *wifi_manager);
+
+    xTaskCreate([](void* param) {
+        LEDUpdater* updater = static_cast<LEDUpdater*>(param);
+        while (true) {
+            updater->fetch_and_update();
+            vTaskDelay(pdMS_TO_TICKS(5000));
+        }
+    }, "led_update_task", 4096, led_updater, 5, NULL);
     
     ESP_LOGI(TAG, "System initialization complete!");
     ESP_LOGI(TAG, "Device MAC: %s", wifi_manager->get_mac_address().c_str());

@@ -25,6 +25,7 @@ public:
     void set_single_led(int led_number);
     void clear_all();
     void test_pattern();
+    void set_from_array(const bool states[], size_t count);
     
 private:
     void pulse_pin(gpio_num_t pin);

@@ -146,3 +146,13 @@ void LEDController::test_pattern() {
     set_leds(pattern);
     ESP_LOGI(TAG, "Test pattern set: LEDs 1,3,5,7,9,11 (pattern: 0x%04X)", pattern);
 }
+
+void LEDController::set_from_array(const bool states[], size_t count) {
+    uint16_t pattern = 0;
+    for (size_t i = 0; i < count && i < 13; i++) {
+        if (states[i]) {
+            pattern |= led_to_register[i];
+        }
+    }
+    set_leds(pattern);
+}
