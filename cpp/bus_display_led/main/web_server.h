@@ -4,6 +4,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "wifi_manager.h"
+#include "ota_manager.h"
 #include <string>
 #include <functional>
 
@@ -16,6 +17,9 @@ public:
     bool stop();
     bool is_running() const { return server_ != nullptr; }
     
+    // Set OTA manager reference
+    void set_ota_manager(OTAManager& ota_manager) { ota_manager_ = &ota_manager; }
+    
     // Callback for WiFi configuration
     void set_wifi_config_callback(std::function<void(const std::string&, const std::string&)> callback) {
         wifi_config_callback_ = callback;
@@ -23,6 +27,7 @@ public:
     
 private:
     WiFiManager& wifi_manager_;
+    OTAManager* ota_manager_;
     httpd_handle_t server_;
     std::function<void(const std::string&, const std::string&)> wifi_config_callback_;
     
@@ -31,6 +36,7 @@ private:
     static esp_err_t apply_handler(httpd_req_t *req);
     static esp_err_t status_handler(httpd_req_t *req);
     static esp_err_t style_handler(httpd_req_t *req);
+    static esp_err_t ota_check_handler(httpd_req_t *req);
     
     // Helper functions
     std::string generate_main_page();

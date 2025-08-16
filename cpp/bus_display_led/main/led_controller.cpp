@@ -5,8 +5,7 @@
 const char* LEDController::TAG = "LED_CTRL";
 
 // LED to register bit mapping (matching your MicroPython code)
-const uint16_t LEDController::led_to_register[13] = {
-    0x0000,                  // LED 0 (not used)
+const uint16_t LEDController::led_to_register[12] = {
     0b0100000000000000,      // LED 1
     0b0010000000000000,      // LED 2
     0b0001000000000000,      // LED 3
@@ -133,26 +132,54 @@ void LEDController::clear_all() {
     ESP_LOGI(TAG, "All LEDs cleared");
 }
 
-void LEDController::test_pattern() {
+void LEDController::set_all(const bool state) {
+    const size_t row_count = 10;
+    bool rows[row_count][12] = {0};
+
+    for (size_t r = 0; r < row_count; r++) {
+        for (int i = 0; i < 12; i++) {
+            rows[r][i] = state;
+        }
+    }
+
+    set_rows(rows, row_count);
+}
+
+void LEDController::set_rows(const bool rows[][12], size_t row_count) {
     if (!initialized_) {
         ESP_LOGE(TAG, "LED controller not initialized");
         return;
     }
-    
-    // Create pattern for LEDs 1, 3, 5, 7, 9, 11
-    uint16_t pattern = led_to_register[1] | led_to_register[3] | led_to_register[5] | 
-                       led_to_register[7] | led_to_register[9] | led_to_register[11];
-    
-    set_leds(pattern);
-    ESP_LOGI(TAG, "Test pattern set: LEDs 1,3,5,7,9,11 (pattern: 0x%04X)", pattern);
+
+    for (size_t r = 0; r < row_count; r++) {
+        uint16_t pattern = 0;
+        for (size_t i = 0; i < 12; i++) {
+            if (rows[r][i]) {
+                pattern |= led_to_register[i];
+            }
+        }
+        feed_register(pattern);  // feed each row sequentially
+    }
+
+    latch_data();  // latch after all rows are fed
 }
 
-void LEDController::set_from_array(const bool states[], size_t count) {
-    uint16_t pattern = 0;
-    for (size_t i = 0; i < count && i < 13; i++) {
-        if (states[i]) {
-            pattern |= led_to_register[i];
+// Updated test_sequence to use 4 rows
+void LEDController::test_sequence() {
+    const size_t row_count = 4;
+    bool rows[row_count][12] = {0};
+
+    for (int led = 0; led < 12; led++) {
+        // Clear all LEDs
+        for (size_t r = 0; r < row_count; r++) {
+            memset(rows[r], 0, sizeof(rows[r]));
+            rows[r][led] = true;  // turn on the current LED in each row
         }
+
+        ESP_LOGI(TAG, "Testing LED %d in %d rows", led, row_count);
+        set_rows(rows, row_count);
+
+        // wait 1 second before next LED
+        ets_delay_us(1000000);  // 1 second
     }
-    set_leds(pattern);
 }

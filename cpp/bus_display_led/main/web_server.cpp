@@ -31,6 +31,19 @@ button:hover {
     background-color: #0056b3;
 }
 
+button.ota-button {
+    background-color: #28a745;
+}
+
+button.ota-button:hover {
+    background-color: #218838;
+}
+
+button.ota-button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
+
 input[type="text"], input[type="password"] {
     padding: 0.375rem 0.75rem;
     font-size: 1rem;
@@ -52,15 +65,41 @@ form {
     background-color: #e9ecef;
 }
 
+.ota-section {
+    margin-top: 2rem;
+    padding: 1rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    background-color: #ffffff;
+}
+
+.ota-status {
+    margin: 0.5rem 0;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    background-color: #f8f9fa;
+    font-family: monospace;
+}
+
 .register-section {
     margin-top: 2rem;
     padding-top: 1rem;
     border-top: 1px solid #dee2e6;
 }
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    margin: 0.25rem 0;
+}
+
+.info-label {
+    font-weight: 600;
+}
 )";
 
 WebServer::WebServer(WiFiManager& wifi_manager) 
-    : wifi_manager_(wifi_manager), server_(nullptr) {
+    : wifi_manager_(wifi_manager), ota_manager_(nullptr), server_(nullptr) {
 }
 
 WebServer::~WebServer() {
@@ -78,7 +117,7 @@ bool WebServer::start() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.task_priority = 5;
     config.stack_size = 8192;
-    config.max_uri_handlers = 8;
+    config.max_uri_handlers = 10;
     config.lru_purge_enable = true;
     
     esp_err_t ret = httpd_start(&server_, &config);
@@ -119,6 +158,14 @@ bool WebServer::start() {
         .user_ctx = this
     };
     httpd_register_uri_handler(server_, &style_uri);
+    
+    httpd_uri_t ota_check_uri = {
+        .uri = "/ota_check",
+        .method = HTTP_POST,
+        .handler = ota_check_handler,
+        .user_ctx = this
+    };
+    httpd_register_uri_handler(server_, &ota_check_uri);
     
     ESP_LOGI(TAG, "HTTP server started successfully");
     return true;
@@ -208,10 +255,73 @@ esp_err_t WebServer::style_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+esp_err_t WebServer::ota_check_handler(httpd_req_t *req) {
+    WebServer* server = static_cast<WebServer*>(req->user_ctx);
+    
+    ESP_LOGI(WebServer::TAG, "Manual OTA check requested");
+    
+    // Check if OTA manager is available
+    if (!server->ota_manager_) {
+        ESP_LOGE(WebServer::TAG, "OTA manager not available");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA manager not available");
+        return ESP_FAIL;
+    }
+    
+    // Check if WiFi is connected
+    if (!server->wifi_manager_.is_connected()) {
+        ESP_LOGW(WebServer::TAG, "Cannot check OTA - no internet connection");
+        
+        // Return JSON response
+        std::string response = R"({"status": "error", "message": "No internet connection"})";
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response.c_str(), response.length());
+        return ESP_OK;
+    }
+    
+    // Check if update is already in progress
+    if (server->ota_manager_->is_update_in_progress()) {
+        ESP_LOGW(WebServer::TAG, "OTA update already in progress");
+        
+        std::string response = R"({"status": "error", "message": "Update already in progress"})";
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response.c_str(), response.length());
+        return ESP_OK;
+    }
+    
+    // Start OTA check in background task to avoid blocking HTTP response
+    xTaskCreate([](void* param) {
+        OTAManager* ota_mgr = static_cast<OTAManager*>(param);
+        esp_err_t result = ota_mgr->check_for_updates();
+        ESP_LOGI(WebServer::TAG, "Manual OTA check completed with result: %s", 
+                 esp_err_to_name(result));
+        vTaskDelete(NULL);
+    }, "manual_ota_check", 4096, server->ota_manager_, 5, NULL);
+    
+    // Return immediate response
+    std::string response = R"({"status": "success", "message": "OTA check started"})";
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, response.c_str(), response.length());
+    
+    return ESP_OK;
+}
+
 std::string WebServer::generate_main_page() {
     std::string mac = wifi_manager_.get_mac_address();
     std::string status_html = generate_status_html();
     std::string registration_url = "https://transport.trillet.be/devices/register_new_device?mac=" + mac;
+    
+    // Get OTA information
+    std::string current_version = "Unknown";
+    std::string ota_status = "OTA manager not available";
+    bool ota_available = false;
+    bool update_in_progress = false;
+    
+    if (ota_manager_) {
+        current_version = ota_manager_->get_current_version();
+        ota_status = ota_manager_->get_last_check_status();
+        ota_available = true;
+        update_in_progress = ota_manager_->is_update_in_progress();
+    }
     
     std::ostringstream html;
     html << R"(<!DOCTYPE html>
@@ -226,6 +336,39 @@ std::string WebServer::generate_main_page() {
                 document.getElementById('status').innerHTML = d;
             });
         }
+        
+        function checkOTA() {
+            const button = document.getElementById('ota-button');
+            const statusDiv = document.getElementById('ota-status');
+            
+            button.disabled = true;
+            button.textContent = 'Checking...';
+            statusDiv.textContent = 'Checking for updates...';
+            
+            fetch('/ota_check', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        statusDiv.textContent = 'Update check started. Please wait...';
+                        // Poll for status updates
+                        const pollStatus = () => {
+                            refreshStatus();
+                            setTimeout(pollStatus, 2000);
+                        };
+                        setTimeout(pollStatus, 2000);
+                    } else {
+                        statusDiv.textContent = 'Error: ' + data.message;
+                        button.disabled = false;
+                        button.textContent = 'Check for Updates';
+                    }
+                })
+                .catch(err => {
+                    statusDiv.textContent = 'Failed to start update check';
+                    button.disabled = false;
+                    button.textContent = 'Check for Updates';
+                });
+        }
+        
         setInterval(refreshStatus, 3000);
     </script>
 </head>
@@ -245,7 +388,30 @@ std::string WebServer::generate_main_page() {
         <input type="submit" value="Connect">
     </form>
     
-    <p><b>Device MAC:</b> )" << mac << R"(</p>
+    <div class="ota-section">
+        <h2>Firmware Information</h2>
+        <div class="info-row">
+            <span class="info-label">Current Version:</span>
+            <span>)" << current_version << R"(</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Device MAC:</span>
+            <span>)" << mac << R"(</span>
+        </div>
+        <div class="ota-status" id="ota-status">)" << ota_status << R"(</div>)";
+    
+    if (ota_available && wifi_manager_.is_connected()) {
+        html << "<button id=\"ota-button\" class=\"ota-button\" onclick=\"checkOTA()\" "
+            << (update_in_progress ? "disabled" : "") << ">"
+            << (update_in_progress ? "Update in Progress..." : "Check for Updates")
+            << "</button>";
+
+    } else if (ota_available && !wifi_manager_.is_connected()) {
+        html << R"(<p><em>Connect to WiFi to check for updates</em></p>)";
+    }
+    
+    html << R"(
+    </div>
     
     <div class="register-section">
         <h2>Register this device online</h2>
@@ -262,8 +428,22 @@ std::string WebServer::generate_main_page() {
 }
 
 std::string WebServer::generate_status_html() {
-    std::string status = wifi_manager_.get_connection_status();
-    return "<h2>" + status + "</h2>";
+    std::ostringstream status;
+    
+    std::string wifi_status = wifi_manager_.get_connection_status();
+    status << "<h2>" << wifi_status << "</h2>";
+    
+    // Add OTA status if available
+    if (ota_manager_) {
+        std::string ota_status = ota_manager_->get_last_check_status();
+        if (ota_manager_->is_update_in_progress()) {
+            status << "<p><strong>OTA Update:</strong> <span style='color: orange;'>IN PROGRESS</span></p>";
+        } else {
+            status << "<p><strong>Last OTA Check:</strong> " << ota_status << "</p>";
+        }
+    }
+    
+    return status.str();
 }
 
 std::string WebServer::url_decode(const std::string& str) {

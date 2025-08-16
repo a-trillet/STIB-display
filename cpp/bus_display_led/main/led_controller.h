@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include <cstdint>
 
+
 // GPIO Pin Definitions
 #define CLOCK_PIN GPIO_NUM_18
 #define DATA_PIN GPIO_NUM_15
@@ -13,7 +14,7 @@
 #define OE_PIN GPIO_NUM_2
 
 // Timing
-#define PULSE_DELAY_US 100
+#define PULSE_DELAY_US 200
 
 class LEDController {
 public:
@@ -24,8 +25,9 @@ public:
     void set_leds(uint16_t pattern);
     void set_single_led(int led_number);
     void clear_all();
-    void test_pattern();
-    void set_from_array(const bool states[], size_t count);
+    void set_all(const bool state);
+    void test_sequence();
+    void set_rows(const bool rows[][12], size_t row_count);
     
 private:
     void pulse_pin(gpio_num_t pin);
@@ -36,5 +38,5 @@ private:
     static const char* TAG;
     
     // LED to register bit mapping (from your original code)
-    static const uint16_t led_to_register[13];
+    static const uint16_t led_to_register[12];
 };

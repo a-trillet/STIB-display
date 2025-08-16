@@ -7,6 +7,7 @@ idf_component_register(
         "wifi_manager.cpp"
         "web_server.cpp"
         "storage_manager.cpp"
+        "ota_manager.cpp"
     INCLUDE_DIRS "."
     REQUIRES 
         driver
@@ -15,9 +16,12 @@ idf_component_register(
         esp_netif
         esp_event
         esp_http_server
+        esp_https_ota
+        app_update
         nvs_flash
         log
         json
         esp_http_client
         mbedtls
+        esp_system
 )

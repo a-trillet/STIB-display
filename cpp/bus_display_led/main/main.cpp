@@ -9,6 +9,7 @@
 #include "web_server.h"
 #include "led_updater.h"
 #include "storage_manager.h"
+#include "ota_manager.h"
 
 static const char* TAG = "MAIN";
 
@@ -18,7 +19,7 @@ StorageManager* storage_manager = nullptr;
 WiFiManager* wifi_manager = nullptr;
 WebServer* web_server = nullptr;
 LEDUpdater* led_updater = nullptr;
-
+OTAManager* ota_manager = nullptr;
 
 // WiFi configuration callback from web server
 void wifi_config_callback(const std::string& ssid, const std::string& password) {
@@ -26,6 +27,14 @@ void wifi_config_callback(const std::string& ssid, const std::string& password) 
     
     // Connect with save=true to store credentials
     wifi_manager->connect_sta(ssid, password, true);
+}
+
+// Task for manual OTA check via web interface (optional)
+void manual_ota_check_task(void* param) {
+    while (true) {
+        // Wait for manual trigger or implement web endpoint
+        vTaskDelay(pdMS_TO_TICKS(60000)); // Check every minute if manual check requested
+    }
 }
 
 extern "C" void app_main(void)
@@ -57,7 +66,10 @@ extern "C" void app_main(void)
     }
     ESP_LOGI(TAG, "LED controller initialized successfully");
     
-    led_controller->clear_all(); // Ensure LEDs start off
+    led_controller->set_all(false); // Ensure LEDs start off
+    led_controller->set_all(true); // check if LEDs are working
+    vTaskDelay(pdMS_TO_TICKS(1000));    
+    led_controller->test_sequence(); // check if LEDs are working
     
     // Create WiFi manager
     wifi_manager = new WiFiManager(*storage_manager);
@@ -66,6 +78,14 @@ extern "C" void app_main(void)
         return;
     }
     ESP_LOGI(TAG, "WiFi manager initialized successfully");
+
+    // Initialize OTA manager
+    ota_manager = new OTAManager(*wifi_manager, *led_controller);
+    if (!ota_manager->initialize()) {
+        ESP_LOGE(TAG, "Failed to initialize OTA manager");
+        return;
+    }
+    ESP_LOGI(TAG, "OTA manager initialized successfully");
 
     // Check if we have saved WiFi credentials and try to connect
     if (storage_manager->has_wifi_credentials()) {
@@ -91,6 +111,7 @@ extern "C" void app_main(void)
     // Create and start web server
     web_server = new WebServer(*wifi_manager);
     web_server->set_wifi_config_callback(wifi_config_callback);
+    web_server->set_ota_manager(*ota_manager);
     
     if (!web_server->start()) {
         ESP_LOGE(TAG, "Failed to start web server");
@@ -99,26 +120,43 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Web server started successfully");
     ESP_LOGI(TAG, "Connect to WiFi '%s' and go to http://192.168.4.1", WIFI_AP_SSID);
     
-
+    // Create LED updater
     led_updater = new LEDUpdater(*led_controller, *wifi_manager);
 
+    // Start LED update task
     xTaskCreate([](void* param) {
         LEDUpdater* updater = static_cast<LEDUpdater*>(param);
         while (true) {
-            updater->fetch_and_update();
+            if (wifi_manager->is_connected()) {
+                updater->fetch_and_update();
+            }
             vTaskDelay(pdMS_TO_TICKS(5000));
         }
     }, "led_update_task", 4096, led_updater, 5, NULL);
+
+    // Wait a bit for initial WiFi connection, then start OTA timer
+    vTaskDelay(pdMS_TO_TICKS(30000)); // Wait 30 seconds
+    
+    // Start OTA update timer (checks every hour)
+    ota_manager->start_ota_timer();
     
     ESP_LOGI(TAG, "System initialization complete!");
     ESP_LOGI(TAG, "Device MAC: %s", wifi_manager->get_mac_address().c_str());
+    ESP_LOGI(TAG, "Current firmware version: %s", ota_manager->get_current_version().c_str());
+    
+    // Perform initial OTA check if connected
+    if (wifi_manager->is_connected()) {
+        ESP_LOGI(TAG, "Performing initial OTA check...");
+        ota_manager->check_for_updates();
+    }
     
     // Main loop - monitor system status
     while (1) {
-        ESP_LOGI(TAG, "Status - AP: %s, STA: %s, Web: %s", 
+        ESP_LOGI(TAG, "Status - AP: %s, STA: %s, Web: %s, OTA: %s", 
                  wifi_manager->is_ap_active() ? "ON" : "OFF",
                  wifi_manager->is_connected() ? "CONNECTED" : "DISCONNECTED",
-                 web_server->is_running() ? "RUNNING" : "STOPPED");
+                 web_server->is_running() ? "RUNNING" : "STOPPED",
+                 ota_manager->get_last_check_status().c_str());
         
         if (wifi_manager->is_connected()) {
             ESP_LOGI(TAG, "WiFi Status: %s, IP: %s", 
