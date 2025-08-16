@@ -29,12 +29,26 @@ void wifi_config_callback(const std::string& ssid, const std::string& password) 
     wifi_manager->connect_sta(ssid, password, true);
 }
 
-// Task for manual OTA check via web interface (optional)
-void manual_ota_check_task(void* param) {
-    while (true) {
-        // Wait for manual trigger or implement web endpoint
-        vTaskDelay(pdMS_TO_TICKS(60000)); // Check every minute if manual check requested
+// Task for initial OTA check (runs once)
+void initial_ota_check_task(void* param) {
+    ESP_LOGI(TAG, "Initial OTA check task started");
+    
+    // Wait for WiFi connection
+    int max_wait = 30; // 30 seconds
+    while (!wifi_manager->is_connected() && max_wait > 0) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        max_wait--;
     }
+    
+    if (wifi_manager->is_connected()) {
+        ESP_LOGI(TAG, "Performing initial OTA check...");
+        ota_manager->check_for_updates();
+    } else {
+        ESP_LOGI(TAG, "No WiFi connection, skipping initial OTA check");
+    }
+    
+    ESP_LOGI(TAG, "Initial OTA check task completed");
+    vTaskDelete(NULL);
 }
 
 extern "C" void app_main(void)
@@ -135,9 +149,6 @@ extern "C" void app_main(void)
     //     }
     // }, "led_update_task", 4096, led_updater, 5, NULL);
 
-    // Wait a bit for initial WiFi connection, then start OTA timer
-    vTaskDelay(pdMS_TO_TICKS(30000)); // Wait 30 seconds
-    
     // Start OTA update timer (checks every hour)
     ota_manager->start_ota_timer();
     
@@ -145,11 +156,8 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Device MAC: %s", wifi_manager->get_mac_address().c_str());
     ESP_LOGI(TAG, "Current firmware version: %s", ota_manager->get_current_version().c_str());
     
-    // Perform initial OTA check if connected
-    if (wifi_manager->is_connected()) {
-        ESP_LOGI(TAG, "Performing initial OTA check...");
-        ota_manager->check_for_updates();
-    }
+    // Create separate task for initial OTA check with larger stack
+    xTaskCreate(initial_ota_check_task, "initial_ota_check", 8192, NULL, 5, NULL);
     
     // Main loop - monitor system status
     while (1) {

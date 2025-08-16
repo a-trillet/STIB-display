@@ -92,9 +92,12 @@ esp_err_t OTAManager::check_for_updates() {
     std::string mac = wifi_manager_.get_mac_address();
     std::string hardware = get_hardware_info();
     
+    ESP_LOGI(TAG, "Preparing OTA request - MAC: %s, Hardware: %s", mac.c_str(), hardware.c_str());
+    
     cJSON* json = cJSON_CreateObject();
     if (!json) {
         last_check_status_ = "JSON creation failed";
+        ESP_LOGE(TAG, "Failed to create JSON object");
         return ESP_FAIL;
     }
     
@@ -104,6 +107,7 @@ esp_err_t OTAManager::check_for_updates() {
     if (!json_hardware || !json_mac) {
         cJSON_Delete(json);
         last_check_status_ = "JSON creation failed";
+        ESP_LOGE(TAG, "Failed to create JSON string objects");
         return ESP_FAIL;
     }
     
@@ -114,19 +118,22 @@ esp_err_t OTAManager::check_for_updates() {
     if (!json_string) {
         cJSON_Delete(json);
         last_check_status_ = "JSON serialization failed";
+        ESP_LOGE(TAG, "Failed to serialize JSON");
         return ESP_FAIL;
     }
     
     std::string post_data(json_string);
+    ESP_LOGI(TAG, "JSON payload: %s", post_data.c_str());
     
     cJSON_Delete(json);
     free(json_string);
     
     // Query server for version info
     std::string url = "https://transport.trillet.be/api/update/versions";
+    ESP_LOGI(TAG, "Making HTTP POST request to: %s", url.c_str());
     std::string response = http_post_json(url, post_data);
 
-    ESP_LOGI(TAG, "OTA server response (length=%zu): %s", response.length(), response.c_str());
+    ESP_LOGI(TAG, "OTA server response (length=%zu): '%s'", response.length(), response.c_str());
     
     if (response.empty()) {
         last_check_status_ = "Server communication failed";
@@ -186,18 +193,21 @@ esp_err_t OTAManager::perform_ota_update(const std::string& update_url) {
     config.url = update_url.c_str();
     config.cert_pem = nullptr; // Use cert bundle
     config.crt_bundle_attach = esp_crt_bundle_attach;
-    config.timeout_ms = OTA_RECV_TIMEOUT_MS;
+    config.timeout_ms = 30000; // Increased timeout to 30 seconds
     config.keep_alive_enable = true;
     config.event_handler = ota_http_event_handler;
     config.user_data = this;
+    config.buffer_size = 2048; // Larger buffer for better performance
+    config.buffer_size_tx = 1024;
     
     esp_https_ota_config_t ota_config = {};
     ota_config.http_config = &config;
     ota_config.http_client_init_cb = nullptr;
     ota_config.bulk_flash_erase = true;
     ota_config.partial_http_download = true;
-    ota_config.max_http_request_size = OTA_BUFFER_SIZE;
+    ota_config.max_http_request_size = 4096; // Larger chunks
     
+    ESP_LOGI(TAG, "Starting OTA download...");
     esp_err_t ret = esp_https_ota(&ota_config);
     
     update_in_progress_ = false;
@@ -233,10 +243,15 @@ std::string OTAManager::get_hardware_info() {
 }
 
 std::string OTAManager::http_post_json(const std::string& url, const std::string& json_data) {
+    ESP_LOGI(TAG, "Starting HTTP POST to: %s", url.c_str());
+    ESP_LOGI(TAG, "POST body: %s", json_data.c_str());
+    
     esp_http_client_config_t config = {};
     config.url = url.c_str();
     config.crt_bundle_attach = esp_crt_bundle_attach;
     config.timeout_ms = OTA_RECV_TIMEOUT_MS;
+    config.buffer_size = 1024;
+    config.buffer_size_tx = 1024;
     
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (!client) {
@@ -246,40 +261,104 @@ std::string OTAManager::http_post_json(const std::string& url, const std::string
     
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_header(client, "User-Agent", "ESP32-BusDisplay/1.0");
+    esp_http_client_set_header(client, "Accept", "application/json");
+    esp_http_client_set_header(client, "Connection", "close");
     esp_http_client_set_post_field(client, json_data.c_str(), json_data.length());
     
-    esp_err_t err = esp_http_client_perform(client);
-    std::string response;
-    
-    if (err == ESP_OK) {
-        int status_code = esp_http_client_get_status_code(client);
-        int content_length = esp_http_client_get_content_length(client);
-        
-        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %d", status_code, content_length);
-        
-        if (status_code == 200 && content_length > 0) {
-            char* buffer = (char*)malloc(content_length + 1);
-            if (buffer) {
-                int read_len = esp_http_client_read_response(client, buffer, content_length);
-                buffer[read_len] = '\0';
-                response = std::string(buffer);
-                free(buffer);
-            }
-        } else if (status_code != 200) {
-            ESP_LOGW(TAG, "HTTP error response: %d", status_code);
-        }
-    } else {
-        ESP_LOGE(TAG, "HTTP POST failed: %s", esp_err_to_name(err));
+    ESP_LOGI(TAG, "Opening HTTP connection...");
+    esp_err_t err = esp_http_client_open(client, json_data.length());
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        return "";
     }
     
+    ESP_LOGI(TAG, "Writing POST data...");
+    int wlen = esp_http_client_write(client, json_data.c_str(), json_data.length());
+    if (wlen < 0) {
+        ESP_LOGE(TAG, "Failed to write POST data");
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return "";
+    }
+    ESP_LOGI(TAG, "Wrote %d bytes", wlen);
+    
+    ESP_LOGI(TAG, "Fetching headers...");
+    int content_length = esp_http_client_fetch_headers(client);
+    int status_code = esp_http_client_get_status_code(client);
+    
+    ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %d", status_code, content_length);
+    
+    std::string response;
+    response.reserve(1024);
+    
+    if (status_code == 200) {
+        if (content_length > 0) {
+            ESP_LOGI(TAG, "Reading response with known length: %d", content_length);
+            char* buffer = (char*)malloc(content_length + 1);
+            if (buffer) {
+                int total_read = 0;
+                while (total_read < content_length) {
+                    int read = esp_http_client_read_response(client, buffer + total_read, content_length - total_read);
+                    if (read <= 0) {
+                        ESP_LOGW(TAG, "Read returned %d, breaking", read);
+                        break;
+                    }
+                    total_read += read;
+                    ESP_LOGI(TAG, "Read %d bytes, total: %d/%d", read, total_read, content_length);
+                }
+                buffer[total_read] = '\0';
+                response.assign(buffer, total_read);
+                free(buffer);
+                ESP_LOGI(TAG, "Successfully read %d bytes", total_read);
+            } else {
+                ESP_LOGE(TAG, "Failed to allocate buffer for response");
+            }
+        } else {
+            ESP_LOGI(TAG, "Reading chunked response...");
+            char* chunk_buffer = (char*)malloc(512);
+            if (chunk_buffer) {
+                int total_read = 0;
+                while (true) {
+                    int read = esp_http_client_read_response(client, chunk_buffer, 511);
+                    if (read <= 0) {
+                        ESP_LOGI(TAG, "No more data (read=%d)", read);
+                        break;
+                    }
+                    chunk_buffer[read] = '\0';
+                    response.append(chunk_buffer, read);
+                    total_read += read;
+                    ESP_LOGI(TAG, "Read chunk: %d bytes, total: %d", read, total_read);
+                    if (total_read >= 2048) {
+                        ESP_LOGW(TAG, "Response too large, truncating");
+                        break;
+                    }
+                }
+                free(chunk_buffer);
+            } else {
+                ESP_LOGE(TAG, "Failed to allocate chunk buffer");
+            }
+        }
+    } else {
+        ESP_LOGE(TAG, "HTTP request failed with status: %d", status_code);
+    }
+    
+    esp_http_client_close(client);
     esp_http_client_cleanup(client);
+    
+    ESP_LOGI(TAG, "HTTP POST completed, response length: %zu", response.length());
+    ESP_LOGI(TAG, "Response content: '%s'", response.c_str());
+    
     return response;
 }
 
 bool OTAManager::parse_version_response(const std::string& json_response, VersionInfo& version_info) {
+    ESP_LOGI(TAG, "Parsing version response: %s", json_response.c_str());
+    
     cJSON* root = cJSON_Parse(json_response.c_str());
     if (!root) {
-        ESP_LOGE(TAG, "Failed to parse JSON response");
+        ESP_LOGE(TAG, "Failed to parse JSON response: %s", cJSON_GetErrorPtr());
         return false;
     }
     
@@ -291,8 +370,16 @@ bool OTAManager::parse_version_response(const std::string& json_response, Versio
         version_info.app_version = std::string(app_version->valuestring);
         version_info.app_url = std::string(app_url->valuestring);
         success = true;
+        ESP_LOGI(TAG, "Parsed version info - Version: %s, URL: %s", 
+                 version_info.app_version.c_str(), version_info.app_url.c_str());
     } else {
         ESP_LOGE(TAG, "Invalid JSON structure in version response");
+        ESP_LOGE(TAG, "app_version is %s: %s", 
+                 cJSON_IsString(app_version) ? "string" : "not string",
+                 app_version ? (cJSON_IsString(app_version) ? app_version->valuestring : "not a string") : "null");
+        ESP_LOGE(TAG, "app_url is %s: %s", 
+                 cJSON_IsString(app_url) ? "string" : "not string",
+                 app_url ? (cJSON_IsString(app_url) ? app_url->valuestring : "not a string") : "null");
     }
     
     cJSON_Delete(root);
@@ -304,7 +391,7 @@ bool OTAManager::version_is_newer(const std::string& server_version, const std::
     // For now, just check if versions are different
     bool different = (server_version != current_version);
     
-    ESP_LOGD(TAG, "Version comparison: server='%s', current='%s', different=%s",
+    ESP_LOGI(TAG, "Version comparison: server='%s', current='%s', different=%s",
              server_version.c_str(), current_version.c_str(), different ? "true" : "false");
     
     return different;
@@ -332,31 +419,45 @@ void OTAManager::ota_timer_callback(TimerHandle_t timer) {
 }
 
 esp_err_t OTAManager::ota_http_event_handler(esp_http_client_event_t *evt) {
+    static int last_progress_log = 0;
+    static int bytes_downloaded = 0;
+    
     switch (evt->event_id) {
         case HTTP_EVENT_ERROR:
-            ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
+            ESP_LOGE(TAG, "HTTP_EVENT_ERROR");
             break;
         case HTTP_EVENT_ON_CONNECTED:
-            ESP_LOGD(TAG, "HTTP_EVENT_ON_CONNECTED");
+            ESP_LOGI(TAG, "HTTP_EVENT_ON_CONNECTED - OTA download starting");
+            bytes_downloaded = 0;
+            last_progress_log = 0;
             break;
         case HTTP_EVENT_HEADER_SENT:
             ESP_LOGD(TAG, "HTTP_EVENT_HEADER_SENT");
             break;
         case HTTP_EVENT_ON_HEADER:
+            if (strcmp(evt->header_key, "Content-Length") == 0) {
+                ESP_LOGI(TAG, "OTA file size: %s bytes", evt->header_value);
+            }
             ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", 
                      evt->header_key, evt->header_value);
             break;
         case HTTP_EVENT_ON_DATA:
-            ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+            bytes_downloaded += evt->data_len;
+            // Log progress every 10KB to avoid spam
+            if (bytes_downloaded - last_progress_log >= 10240) {
+                ESP_LOGI(TAG, "OTA Progress: %d bytes downloaded", bytes_downloaded);
+                last_progress_log = bytes_downloaded;
+            }
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d, total=%d", evt->data_len, bytes_downloaded);
             break;
         case HTTP_EVENT_ON_FINISH:
-            ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
+            ESP_LOGI(TAG, "HTTP_EVENT_ON_FINISH - OTA download completed, total: %d bytes", bytes_downloaded);
             break;
         case HTTP_EVENT_DISCONNECTED:
-            ESP_LOGD(TAG, "HTTP_EVENT_DISCONNECTED");
+            ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
             break;
         case HTTP_EVENT_REDIRECT:
-            ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
+            ESP_LOGI(TAG, "HTTP_EVENT_REDIRECT");
             break;
     }
     return ESP_OK;
