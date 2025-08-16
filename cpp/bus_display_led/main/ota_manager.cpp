@@ -183,42 +183,38 @@ esp_err_t OTAManager::perform_ota_update(const std::string& update_url) {
     }
     
     update_in_progress_ = true;
+
     
     ESP_LOGI(TAG, "Starting OTA update from: %s", update_url.c_str());
     
-    // Show update indication on LEDs (flash pattern)
-    //led_controller_.test_pattern();
-    
     esp_http_client_config_t config = {};
     config.url = update_url.c_str();
-    config.cert_pem = nullptr; // Use cert bundle
+    config.cert_pem = nullptr;
     config.crt_bundle_attach = esp_crt_bundle_attach;
-    config.timeout_ms = 30000; // Increased timeout to 30 seconds
-    config.keep_alive_enable = true;
+    config.timeout_ms = 60000; // 60 second timeout
+    config.keep_alive_enable = false; // Disable keep-alive
     config.event_handler = ota_http_event_handler;
     config.user_data = this;
-    config.buffer_size = 2048; // Larger buffer for better performance
+    config.buffer_size = 8192; // Larger buffer
     config.buffer_size_tx = 1024;
     
     esp_https_ota_config_t ota_config = {};
     ota_config.http_config = &config;
     ota_config.http_client_init_cb = nullptr;
     ota_config.bulk_flash_erase = true;
-    ota_config.partial_http_download = true;
-    ota_config.max_http_request_size = 4096; // Larger chunks
+    ota_config.partial_http_download = false; // DISABLE partial downloads
+    ota_config.max_http_request_size = 0; // Single request
     
-    ESP_LOGI(TAG, "Starting OTA download...");
+    ESP_LOGI(TAG, "Starting single-request OTA download...");
     esp_err_t ret = esp_https_ota(&ota_config);
     
     update_in_progress_ = false;
     
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "OTA update successful");
-        // Clear LEDs before restart
         led_controller_.clear_all();
     } else {
         ESP_LOGE(TAG, "OTA update failed: %s", esp_err_to_name(ret));
-        // Show error pattern (all LEDs on)
         led_controller_.set_leds(0xFFFF);
         vTaskDelay(pdMS_TO_TICKS(3000));
         led_controller_.clear_all();

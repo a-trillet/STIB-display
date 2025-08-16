@@ -83,7 +83,7 @@ extern "C" void app_main(void)
     led_controller->set_all(false); // Ensure LEDs start off
     led_controller->set_all(true); // check if LEDs are working
     vTaskDelay(pdMS_TO_TICKS(1000));    
-    led_controller->set_all(false); // turn off LEDs after check
+    //led_controller->set_all(false); // turn off LEDs after check
     //led_controller->test_sequence(); // check if LEDs are working
     
     // Create WiFi manager
@@ -135,19 +135,19 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Web server started successfully");
     ESP_LOGI(TAG, "Connect to WiFi '%s' and go to http://192.168.4.1", WIFI_AP_SSID);
     
-    // // Create LED updater
-    // led_updater = new LEDUpdater(*led_controller, *wifi_manager);
+    // Create LED updater
+    led_updater = new LEDUpdater(*led_controller, *wifi_manager);
 
-    // // Start LED update task
-    // xTaskCreate([](void* param) {
-    //     LEDUpdater* updater = static_cast<LEDUpdater*>(param);
-    //     while (true) {
-    //         if (wifi_manager->is_connected()) {
-    //             updater->fetch_and_update();
-    //         }
-    //         vTaskDelay(pdMS_TO_TICKS(5000));
-    //     }
-    // }, "led_update_task", 4096, led_updater, 5, NULL);
+    // Start LED update task
+    xTaskCreate([](void* param) {
+        LEDUpdater* updater = static_cast<LEDUpdater*>(param);
+        while (true) {
+            if (wifi_manager->is_connected()) {
+                updater->fetch_and_update();
+            }
+            vTaskDelay(pdMS_TO_TICKS(5000));
+        }
+    }, "led_update_task", 4096, led_updater, 5, NULL);
 
     // Start OTA update timer (checks every hour)
     ota_manager->start_ota_timer();
