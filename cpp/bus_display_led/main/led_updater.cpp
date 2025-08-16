@@ -114,7 +114,7 @@ std::string LEDUpdater::http_get(const std::string& url) {
 
 
 bool LEDUpdater::parse_json_to_strips(const char* json, std::vector<StripData>& strips_out) {
-    ESP_LOGI(TAG, "Parsing JSON: %s", json);
+    //ESP_LOGI(TAG, "Parsing JSON: %s", json);
 
     cJSON* root = cJSON_Parse(json);
     if (!root) {

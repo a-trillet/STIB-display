@@ -125,6 +125,8 @@ esp_err_t OTAManager::check_for_updates() {
     // Query server for version info
     std::string url = "https://transport.trillet.be/api/update/versions";
     std::string response = http_post_json(url, post_data);
+
+    ESP_LOGI(TAG, "OTA server response (length=%zu): %s", response.length(), response.c_str());
     
     if (response.empty()) {
         last_check_status_ = "Server communication failed";
@@ -221,11 +223,11 @@ std::string OTAManager::get_hardware_info() {
     esp_chip_info(&chip_info);
     
     std::ostringstream hw_info;
-    hw_info << "ESP32";
+    hw_info << "ESP32_WROOM";
     
-    if (chip_info.model == CHIP_ESP32) {
-        hw_info << "_WROOM";
-    }
+    // if (chip_info.model == CHIP_ESP32) {
+    //     hw_info << "_WROOM";
+    // }
     
     return hw_info.str();
 }
